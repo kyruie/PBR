@@ -100,35 +100,41 @@ require([
 
   // controls
   //
-  var ctrl  = Controls();
-  var gui   = new dat.GUI();
+  var ctrl    = Controls();
+  var gui     = new dat.GUI();
+
+  var menu    = ['constant', 'texture'];
+  var menu_m  = ['dagger', 'sphere'];
+  var menu_f  = ['schlick', 'schlick_ue4', 'cooktorrance'];
+  var menu_d  = ['blinnphong', 'beckmann', 'ggx'];
+  var menu_g  = [ 'implicit', 'cooktorrance', 'schlick', 'schlick_ue4', 'smith', 'walter' ];
 
   var fld_model     = gui.addFolder('Model');
-  fld_model.add(ctrl.model, 'use', ['dagger', 'sphere']).onChange(function(v) {
+  fld_model.add(ctrl.model, 'use', menu_m).onChange(function(v) {
     scene.remove((v === 'dagger')? sphere : dagger);
     scene.add((v === 'dagger')? dagger : sphere);
   });
 
   var fld_albedo = gui.addFolder('Albedo');
-  fld_albedo.add(ctrl.albedo, 'use', ['constant', 'texture']).onChange(makedef('albedo'));
+  fld_albedo.add(ctrl.albedo, 'use', menu).onChange(makedef('albedo'));
   fld_albedo.addColor(ctrl.albedo, 'color').onChange(makeuni('c_albedo'));
 
   var fld_specular = gui.addFolder('Specular');
-  fld_specular.add(ctrl.specular, 'use', ['constant', 'texture']).onChange(makedef('specular'));
+  fld_specular.add(ctrl.specular, 'use', menu).onChange(makedef('specular'));
   fld_specular.addColor(ctrl.specular, 'color').onChange(makeuni('c_specular'));
   fld_specular.open();
 
   var fld_fresnel = gui.addFolder('Fresnel');
-  fld_fresnel.add(ctrl.fresnel, 'use', ['schlick', 'schlick_ue4']).onChange(makedef('fresnel'));
+  fld_fresnel.add(ctrl.fresnel, 'use', menu_f).onChange(makedef('fresnel'));
 
   var fld_ndf = gui.addFolder('NDF');
-  fld_ndf.add(ctrl.ndf, 'use', ['blinnphong', 'beckmann', 'ggx']).onChange(makedef('ndf'));
+  fld_ndf.add(ctrl.ndf, 'use', menu_d).onChange(makedef('ndf'));
 
   var fld_geometry = gui.addFolder('Geometry');
-  fld_geometry.add(ctrl.geometry, 'use', [ 'implicit', 'cooktorrance', 'schlick', 'schlick_ue4', 'smith', 'walter' ]).onChange(makedef('geometry'));
+  fld_geometry.add(ctrl.geometry, 'use', menu_g).onChange(makedef('geometry'));
 
   var fld_roughness = gui.addFolder('Roughness');
-  fld_roughness.add(ctrl.roughness, 'use', ['constant', 'texture']).onChange(makedef('roughness'));
+  fld_roughness.add(ctrl.roughness, 'use', menu).onChange(makedef('roughness'));
   fld_roughness.add(ctrl.roughness, 'constant', 0.0001, 1.0).onChange(makeuni('f_roughness'));
   fld_roughness.open();
 

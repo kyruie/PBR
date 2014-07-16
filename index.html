@@ -89,22 +89,36 @@
 
     // Fresnel
     //
-    vec3 F_schlick(vec3 f0, vec3 l, vec3 h) {
-      return f0 + (1.0 - f0) * pow(1.0 - dot(h, l), 5.0);
+    vec3 F_schlick(vec3 f0, vec3 v, vec3 h) {
+      return f0 + (1.0 - f0) * pow(1.0 - max(dot(v, h), 0.0), 5.0);
     }
 
-    vec3 F_schlickminor(vec3 f0, vec3 v, vec3 h) {
+    vec3 F_schlick_ue4(vec3 f0, vec3 v, vec3 h) {
       float vdoth = dot(v, h);
       return f0 + (1.0 - f0) * pow(2.0, (-5.55473 * vdoth - 6.98316) * vdoth);
     }
 
-    vec3 Fresnel(vec3 f0, vec3 v, vec3 l, vec3 h) {
+    vec3 F_cook_torrance(vec3 f0, vec3 v, vec3 h) {
+      vec3  n = (1.0 + sqrt(f0)) / (1.0 - sqrt(f0));
+      float c = dot(v, h);
+      vec3  g = sqrt(n*n + c*c - 1.0);
+
+      vec3  p1 = (g - c) / (g + c);
+      vec3  p2 = ((g + c) * c - 1.0) / ((g - c) * c + 1.0);
+
+      return max(0.5 * p1 * p1 * (1.0 + p2 * p2), 0.0);
+    }
+
+    vec3 Fresnel(vec3 f0, vec3 v, vec3 h) {
       vec3 F = vec3(0.0);
       #ifdef USE_FRESNEL_SCHLICK
-        F = F_schlick(f0, l, h);
+        F = F_schlick(f0, v, h);
       #endif
       #ifdef USE_FRESNEL_SCHLICK_UE4
-        F = F_schlickminor(f0, v, h);
+        F = F_schlick_ue4(f0, v, h);
+      #endif
+      #ifdef USE_FRESNEL_COOKTORRANCE
+        F = F_cook_torrance(f0, v, h);
       #endif
 
       return F;
@@ -235,7 +249,7 @@
     vec3 Albedo() {
       vec3 a = vec3(1.0);
       #ifdef USE_ALBEDO_TEXTURE
-        a = texture2D(t_albedo, v2_uv).rgb;
+        a = pow(texture2D(t_albedo, v2_uv).rgb, vec3(2.2));
       #endif
       #ifdef USE_ALBEDO_CONSTANT
         a = c_albedo;
@@ -273,29 +287,32 @@
     }
 
     vec3 Radiance(vec3 rfl, float rgh) {
-      vec3 env_r0 = textureCube(t_radiance0, rfl).rgb * f_el_intensity;
-      vec3 env_r1 = textureCube(t_radiance1, rfl).rgb * f_el_intensity;
-      vec3 env_r2 = textureCube(t_radiance2, rfl).rgb * f_el_intensity;
-      vec3 env_r3 = textureCube(t_radiance3, rfl).rgb * f_el_intensity;
-      vec3 env_r4 = textureCube(t_radiance4, rfl).rgb * f_el_intensity;
-
-      vec3 rad = vec3(0.0);
+      vec3 v1;
+      vec3 v2;
 
       float idx = rgh * 4.0;
+
       if (idx >= 3.0) {
-        rad = mix(env_r3, env_r4, idx-3.0);
+        v1 = textureCube(t_radiance3, rfl).rgb;
+        v2 = textureCube(t_radiance4, rfl).rgb;
       }
       else if (idx >= 2.0) {
-        rad = mix(env_r2, env_r3, idx-2.0);
+        v1 = textureCube(t_radiance2, rfl).rgb;
+        v2 = textureCube(t_radiance3, rfl).rgb;
       }
       else if (idx >= 1.0) {
-        rad = mix(env_r1, env_r2, idx-1.0); 
+        v1 = textureCube(t_radiance1, rfl).rgb;
+        v2 = textureCube(t_radiance2, rfl).rgb;
       }
       else {
-        rad = mix(env_r0, env_r1, idx);
+        v1 = textureCube(t_radiance0, rfl).rgb;
+        v2 = textureCube(t_radiance1, rfl).rgb;
       }
 
-      return rad;
+      v1 = pow(v1, vec3(2.2)) * f_el_intensity;
+      v2 = pow(v2, vec3(2.2)) * f_el_intensity;
+
+      return mix(v1, v2, fract(idx));;
     }
 
     void main() {
@@ -328,17 +345,18 @@
 
       gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
 
+      vec3 temp;
       #if MAX_DIR_LIGHTS > 0
-
       for (int i = 0; i < MAX_DIR_LIGHTS; ++i) {
-        vec3 l = l_dir[i];
+        vec3 l = normalize(l_dir[i]);
         vec3 h = normalize(l + v);
         vec3 c_dir = directionalLightColor[i] * f_dl_intensity;
 
         float ndotl = dot(n, l);
         float ndotl_s = max(ndotl, 0.0);
         
-        vec3  F = Fresnel(f0, v, l, h);
+        vec3  F = Fresnel(f0, v, h);
+        temp = F;
         float G = Geometry(n, v, l, h, r);
         float D = Distribution(n, h, r);
         
@@ -359,7 +377,8 @@
       }
       #endif
 
-      gl_FragColor += vec4(dl_diff + dl_spec + mix(el_spec, el_diff, r), 1.0);
+      //gl_FragColor += vec4(dl_diff + dl_spec + mix(el_spec, el_diff, r), 1.0);
+      gl_FragColor = vec4(temp, 1.0);
     }
   </script>
 </head>
