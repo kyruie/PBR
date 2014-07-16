@@ -10,247 +10,30 @@ require.config({
   }
 });
 
-function directional_light(three) {
-  var ctx = {};
-
-  var theta = 225 * Math.PI / 180.0;
-  var phi   = 45  * Math.PI / 180.0;
-
-  var light     = new three.DirectionalLight(0xFFFFFF);
-  var material  = new three.LineBasicMaterial({ color: 0xFFFFFF });
-  var geometry  = new three.Geometry();
-  var object    = new three.Line(geometry, material);
-
-  geometry.vertices.push(new three.Vector3(0, 0, 0));
-  geometry.vertices.push(new three.Vector3(0, 0, 0));
-
-  ctx.add_to = function(scene) {
-    scene.add(light);
-    scene.add(object);
-
-    return ctx;
-  };
-
-  ctx.color = function(c) {
-    light.color = new three.Color(c);
-    material.color = new three.Color(c);
-
-    return ctx;
-  };
-
-  ctx.rotate = function(dx, dy) {
-    theta += (dx * Math.PI / 180.0);
-    phi   += (dy * Math.PI / 180.0);
-
-    ctx.update();
-
-    return ctx;
-  };
-
-  ctx.update = function() {
-    light.position.set(
-      Math.sin(theta) * Math.cos(phi),
-      Math.sin(phi),
-      Math.cos(theta) * Math.cos(phi)
-    );
-
-    geometry.vertices[1].x = 50.0 * light.position.x;
-    geometry.vertices[1].y = 50.0 * light.position.y;
-    geometry.vertices[1].z = 50.0 * light.position.z;
-
-    geometry.verticesNeedUpdate = true;
-
-    return ctx;
-  };
-
-  return ctx;
-};
-
-function camera(three, aspect) {
-  var ctx = {};
-
-  var camera  = new three.PerspectiveCamera(45, aspect, 1, 5000);
-  var theta   = 180 * Math.PI / 180.0;
-  var phi     = 0;
-  var radius  = 150;
-
-  ctx.get = function() {
-    return camera;
-  };
-
-  ctx.look_at = function(pos) {
-    camera.lookAt(pos);
-
-    return ctx;
-  };
-
-  ctx.rotate = function(dx, dy) {
-    theta += (dx * Math.PI / 180.0);
-    phi   += (dy * Math.PI / 180.0);
-
-    return ctx.update();
-  };
-
-  ctx.zoom = function(dz) {
-    radius += dz;
-
-    return ctx.update();
-  };
-
-  ctx.update = function() {
-    camera.position.x = radius * Math.sin(theta) * Math.cos(phi);
-    camera.position.y = radius * Math.sin(phi);
-    camera.position.z = radius * Math.cos(theta) * Math.cos(phi);
-    camera.updateMatrix();
-
-    return ctx;
-  }
-
-  return ctx;
-};
-
-function skybox(three) {
-  var ctx = {};
-
-  var uniforms = three.UniformsUtils.clone(three.ShaderLib.cube.uniforms);
-  var geometry = new three.BoxGeometry(1000, 1000, 1000, 1, 1, 1);
-  var material = new three.ShaderMaterial({ 
-    vertexShader:   three.ShaderLib.cube.vertexShader,
-    fragmentShader: three.ShaderLib.cube.fragmentShader,
-    uniforms:       uniforms, 
-    side:           three.BackSide 
-  });
-  var object = new three.Mesh(geometry, material);
-
-  ctx.add_to = function(scene) {
-    scene.add(object);
-
-    return ctx;
-  };
-
-  ctx.cubemap = function(tex) {
-    uniforms.tCube.value = tex;
-
-    return ctx;
-  };
-
-  return ctx;
-};
-
-function textures(three, name) {
-  var ctx = {};
-  var loader = three.ImageUtils.loadDDSTexture;
-
-  var albedo = loader('asset/' + name + '/albedo.dds');
-  albedo.minFilter = albedo.maxFilter = three.LinearFilter;
-
-  var normal = loader('asset/' + name + '/normal.dds');
-  normal.minFilter = normal.maxFilter = three.LinearFilter;
-
-  var specular = loader('asset/' + name + '/specular.dds');
-  specular.minFilter = specular.maxFilter = three.LinearFilter;
-
-  var gloss = loader('asset/' + name + '/gloss.dds');
-  gloss.minFilter = gloss.maxFilter = three.LinearFilter;
-
-  ctx.albedo = function() {
-    return albedo;
-  };
-
-  ctx.normal = function() {
-    return normal;
-  };
-
-  ctx.specular = function() {
-    return specular;
-  };
-
-  ctx.gloss = function() {
-    return gloss;
-  };
-
-  return ctx;
-};
-
-function environment_maps(three, name) {
-  var ctx = {};
-  var loader = three.ImageUtils.loadDDSTexture;
-
-  var irradiance = loader('asset/' + name + '/irradiance.dds');
-  irradiance.minFilter = irradiance.maxFilter = three.LinearFilter;
-
-  var radiance = [];
-
-  radiance.push(loader('asset/' + name + '/specular.dds'));
-  radiance[0].minFilter = radiance[0].maxFilter = three.LinearFilter;
-
-  function mip(lv) {
-    return loader('asset/' + name + '/radiance.dds', three.UVMapping, function(tex) {
-      for (var i = 0; i < 6; ++i) {
-        var face = tex.image[i];
-        face.mipmaps  = face.mipmaps.slice(lv, lv+1);
-        face.width    = face.mipmaps[0].width;
-        face.height   = face.mipmaps[0].height;
-      }
-    });
-  }
-
-  for (var i = 1; i < 5; ++i) {
-    radiance.push(mip(i-1));
-    radiance[i].minFilter = radiance[i].maxFilter = three.LinearFilter;
-  }
-
-  ctx.irradiance = function() {
-    return irradiance;
-  };
-
-  ctx.radiance = function(lv) {
-    return radiance[lv];
-  };
-
-  return ctx;
-};
-
 require([
   'lib/lodash.min',
   'lib/jquery-1.9.0.min',
   'lib/dat.gui.min',
   'three.obj'
 ], function() {
-  var root      = $('#view'),
-      width     = 640,
+  var width     = 640,
       height    = 480,
+      renderer  = new THREE.WebGLRenderer(),
       scene     = new THREE.Scene(),
-      renderer  = new THREE.WebGLRenderer();
+      camera    = Camera(width/height),
+      light     = DirectionalLight().add_to(scene),
+      env       = EnvironmentMaps('castle'),
+      tex       = MaterialTextures('dagger'),
+      pbr       = PBR().textures(tex).environments(env),
+      loader    = new THREE.OBJLoader(new THREE.LoadingManager());
 
-  root.append(renderer.domElement);
-  renderer.setSize(width, height);
-
-  // camera
-  //
-  var cam = camera(THREE, width/height);
-
-  // directional light
-  //
-  var light = directional_light(THREE).add_to(scene);
-
-  // environment maps
-  //
-  var maps = environment_maps(THREE, 'castle');
-
-  // dagger textures
-  //
-  var texs = textures(THREE, 'dagger');
-
-  // skybox
-  //
-  skybox(THREE).cubemap(maps.radiance(0)).add_to(scene);
-
-  var pbr = PBR().textures(texs).environments(maps);
+  $('#view').append(renderer.domElement);
+  
+  Skybox().cubemap(env.radiance(0)).add_to(scene);
 
   // models
+  //
   var dagger = null;
-  var loader = new THREE.OBJLoader(new THREE.LoadingManager());
   loader.load('asset/dagger/mesh.obj', function(obj) {
     obj.traverse(function(child) {
       if (child instanceof THREE.Mesh) {
@@ -267,22 +50,36 @@ require([
     pbr.material()
   );
 
+  renderer.setSize(width, height);
+  camera.update();
+  light.update();
+  scene.add(sphere);
+  pbr.update();
+
+  animate();
+
+
+
+  // update functions
+  //
   function animate(ts) {
     requestAnimationFrame(animate);   
     render();
   };
 
   function render() {
-    cam.look_at(scene.position);
-    renderer.render(scene, cam.get());
+    camera.look_at(scene.position);
+    renderer.render(scene, camera.get());
   };
 
+  // mouse events
+  //
   $('#view > canvas').on('mousemove', function(e) {
     if (!e.which) {
       return;
     }
 
-    oe = e.originalEvent;
+    var oe = e.originalEvent;
     var dx = (oe.webkitMovementX * 0.5);
     var dy = (oe.webkitMovementY * 0.5);
 
@@ -290,14 +87,19 @@ require([
       light.rotate(dx, -dy);
     }
     if (oe.button === 2) {
-      cam.rotate(-dx, dy)
+      camera.rotate(-dx, dy)
     }
   });
 
-  document.addEventListener('mousewheel', function(e) {
-    cam.zoom((e.wheelDelta / Math.abs(e.wheelDelta)) * -10);
-  }, false);
+  $('#view > canvas').on('mousewheel', function(e) {
+    var delta = e.originalEvent.wheelDelta;
+    camera.zoom(delta / Math.abs(delta) * -10.0);
+  });
 
+
+
+  // controls
+  //
   var ctrl  = Controls();
   var gui   = new dat.GUI();
 
@@ -354,15 +156,187 @@ require([
     }
   };
 
-  cam.update();
-  light.update();
-  scene.add(sphere);
-  pbr.update();
+  
 
-  animate();
+  // etc
+  //
+  function Camera(aspect) {
+    var ctx = {};
 
+    var cam  = new THREE.PerspectiveCamera(45, aspect, 1, 5000);
+    var theta   = 180 * Math.PI / 180.0;
+    var phi     = 0;
+    var radius  = 150;
 
+    ctx.get = function() {
+      return cam;
+    };
 
+    ctx.look_at = function(pos) {
+      cam.lookAt(pos);
+
+      return ctx;
+    };
+
+    ctx.rotate = function(dx, dy) {
+      theta += (dx * Math.PI / 180.0);
+      phi   += (dy * Math.PI / 180.0);
+
+      return ctx.update();
+    };
+
+    ctx.zoom = function(dz) {
+      radius += dz;
+
+      return ctx.update();
+    };
+
+    ctx.update = function() {
+      cam.position.x = radius * Math.sin(theta) * Math.cos(phi);
+      cam.position.y = radius * Math.sin(phi);
+      cam.position.z = radius * Math.cos(theta) * Math.cos(phi);
+      cam.updateMatrix();
+
+      return ctx;
+    }
+
+    return ctx;
+  };
+
+  function Controls() {
+    var ctx = {};
+
+    ctx.model = {};
+    ctx.model.use = 'sphere';
+
+    ctx.albedo = {};
+    ctx.albedo.use = 'constant';
+    ctx.albedo.color = '#FFFFFF';
+
+    ctx.specular = {};
+    ctx.specular.use = 'constant';
+    ctx.specular.color = '#FFFFFF';
+
+    ctx.fresnel = {};
+    ctx.fresnel.use = 'schlick';
+
+    ctx.ndf = {};
+    ctx.ndf.use = 'blinnphong';
+
+    ctx.geometry = {};
+    ctx.geometry.use = 'cooktorrance';
+
+    ctx.roughness = {};
+    ctx.roughness.use = 'constant';
+    ctx.roughness.constant = 0.5;
+
+    ctx.dl = {};
+    ctx.dl.intensity = 1.0;
+    ctx.dl.color = '#FFFFFF';
+
+    ctx.el = {};
+    ctx.el.intensity = 1.0;
+
+    ctx.ao = false;
+    ctx.cavity = false;
+
+    return ctx;
+  };
+
+  function DirectionalLight() {
+    var ctx = {};
+
+    var theta = 225 * Math.PI / 180.0;
+    var phi   = 45  * Math.PI / 180.0;
+
+    var light     = new THREE.DirectionalLight(0xFFFFFF);
+    var material  = new THREE.LineBasicMaterial({ color: 0xFFFFFF });
+    var geometry  = new THREE.Geometry();
+    var object    = new THREE.Line(geometry, material);
+
+    geometry.vertices.push(new THREE.Vector3(0, 0, 0));
+    geometry.vertices.push(new THREE.Vector3(0, 0, 0));
+
+    ctx.add_to = function(scene) {
+      scene.add(light);
+      scene.add(object);
+
+      return ctx;
+    };
+
+    ctx.color = function(c) {
+      light.color = new THREE.Color(c);
+      material.color = new THREE.Color(c);
+
+      return ctx;
+    };
+
+    ctx.rotate = function(dx, dy) {
+      theta += (dx * Math.PI / 180.0);
+      phi   += (dy * Math.PI / 180.0);
+
+      ctx.update();
+
+      return ctx;
+    };
+
+    ctx.update = function() {
+      light.position.set(
+        Math.sin(theta) * Math.cos(phi),
+        Math.sin(phi),
+        Math.cos(theta) * Math.cos(phi)
+      );
+
+      geometry.vertices[1].x = 50.0 * light.position.x;
+      geometry.vertices[1].y = 50.0 * light.position.y;
+      geometry.vertices[1].z = 50.0 * light.position.z;
+
+      geometry.verticesNeedUpdate = true;
+
+      return ctx;
+    };
+
+    return ctx;
+  };
+
+  function EnvironmentMaps(name) {
+  var ctx = {};
+  var loader = THREE.ImageUtils.loadDDSTexture;
+
+  var irradiance = loader('asset/' + name + '/irradiance.dds');
+  irradiance.minFilter = irradiance.maxFilter = THREE.LinearFilter;
+
+  var radiance = [];
+
+  radiance.push(loader('asset/' + name + '/specular.dds'));
+  radiance[0].minFilter = radiance[0].maxFilter = THREE.LinearFilter;
+
+  function mip(lv) {
+    return loader('asset/' + name + '/radiance.dds', THREE.UVMapping, function(tex) {
+      for (var i = 0; i < 6; ++i) {
+        var face = tex.image[i];
+        face.mipmaps  = face.mipmaps.slice(lv, lv+1);
+        face.width    = face.mipmaps[0].width;
+        face.height   = face.mipmaps[0].height;
+      }
+    });
+  }
+
+  for (var i = 1; i < 5; ++i) {
+    radiance.push(mip(i-1));
+    radiance[i].minFilter = radiance[i].maxFilter = THREE.LinearFilter;
+  }
+
+  ctx.irradiance = function() {
+    return irradiance;
+  };
+
+  ctx.radiance = function(lv) {
+    return radiance[lv];
+  };
+
+  return ctx;
+};
 
   function PBR() {
     var ctx = {};
@@ -461,42 +435,65 @@ require([
     return ctx;
   };
 
-  function Controls() {
+  function Skybox() {
     var ctx = {};
 
-    ctx.model = {};
-    ctx.model.use = 'sphere';
+    var uniforms = THREE.UniformsUtils.clone(THREE.ShaderLib.cube.uniforms);
+    var geometry = new THREE.BoxGeometry(1000, 1000, 1000, 1, 1, 1);
+    var material = new THREE.ShaderMaterial({ 
+      vertexShader:   THREE.ShaderLib.cube.vertexShader,
+      fragmentShader: THREE.ShaderLib.cube.fragmentShader,
+      uniforms:       uniforms, 
+      side:           THREE.BackSide 
+    });
+    var object = new THREE.Mesh(geometry, material);
 
-    ctx.albedo = {};
-    ctx.albedo.use = 'constant';
-    ctx.albedo.color = '#FFFFFF';
+    ctx.add_to = function(scene) {
+      scene.add(object);
 
-    ctx.specular = {};
-    ctx.specular.use = 'constant';
-    ctx.specular.color = '#FFFFFF';
+      return ctx;
+    };
 
-    ctx.fresnel = {};
-    ctx.fresnel.use = 'schlick';
+    ctx.cubemap = function(tex) {
+      uniforms.tCube.value = tex;
 
-    ctx.ndf = {};
-    ctx.ndf.use = 'blinnphong';
+      return ctx;
+    };
 
-    ctx.geometry = {};
-    ctx.geometry.use = 'cooktorrance';
+    return ctx;
+  };
 
-    ctx.roughness = {};
-    ctx.roughness.use = 'constant';
-    ctx.roughness.constant = 0.5;
+  function MaterialTextures(name) {
+    var ctx = {};
+    var loader = THREE.ImageUtils.loadDDSTexture;
 
-    ctx.dl = {};
-    ctx.dl.intensity = 1.0;
-    ctx.dl.color = '#FFFFFF';
+    var albedo = loader('asset/' + name + '/albedo.dds');
+    albedo.minFilter = albedo.maxFilter = THREE.LinearFilter;
 
-    ctx.el = {};
-    ctx.el.intensity = 1.0;
+    var normal = loader('asset/' + name + '/normal.dds');
+    normal.minFilter = normal.maxFilter = THREE.LinearFilter;
 
-    ctx.ao = false;
-    ctx.cavity = false;
+    var specular = loader('asset/' + name + '/specular.dds');
+    specular.minFilter = specular.maxFilter = THREE.LinearFilter;
+
+    var gloss = loader('asset/' + name + '/gloss.dds');
+    gloss.minFilter = gloss.maxFilter = THREE.LinearFilter;
+
+    ctx.albedo = function() {
+      return albedo;
+    };
+
+    ctx.normal = function() {
+      return normal;
+    };
+
+    ctx.specular = function() {
+      return specular;
+    };
+
+    ctx.gloss = function() {
+      return gloss;
+    };
 
     return ctx;
   };
