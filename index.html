@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title></title>
+  <script data-main="js/main" src="js/lib/require.min.js"></script>
+  <script type="x-shader/x-vertex" id="vs">
+    #if MAX_DIR_LIGHTS > 0
+      uniform vec3 directionalLightDirection[ MAX_DIR_LIGHTS ];
+      varying vec3 l_dir[ MAX_DIR_LIGHTS ];
+    #endif
+
+    varying vec2 v2_uv;
+    varying vec3 v3_norm;
+    varying vec4 v4_pos;
+
+    varying vec3 v3_wn;
+    varying vec4 v4_wp;
+
+    void main() {
+      v2_uv = vec2(uv.x, 1.0-uv.y);;
+
+      v3_wn = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
+      v4_wp = modelMatrix * vec4(position, 1.0);
+      
+      v3_norm = normalize((modelViewMatrix * vec4(normal, 0.0)).xyz);
+      //v3_norm = normalize(normalMatrix * normal);
+
+      v4_pos = modelViewMatrix * vec4(position, 1.0);
+      #if MAX_DIR_LIGHTS > 0
+      for (int i = 0; i < MAX_DIR_LIGHTS; ++i) {
+        l_dir[i] = normalize((viewMatrix * vec4(directionalLightDirection[i], 0.0)).xyz);
+      }
+      #endif
+
+      gl_Position = projectionMatrix * v4_pos;
+    }
+  </script>
+  <script type="x-shader/x-fragment" id="fs">
+    #extension GL_OES_standard_derivatives : enable
+
+    #if MAX_DIR_LIGHTS > 0
+      uniform vec3 directionalLightColor[ MAX_DIR_LIGHTS ];
+      varying vec3 l_dir[ MAX_DIR_LIGHTS ];
+    #endif
+
+    uniform float       f_roughness;
+    uniform float       f_dl_intensity;
+    uniform float       f_el_intensity;
+    uniform vec3        c_albedo;
+    uniform vec3        c_specular;
+    uniform sampler2D   t_albedo;
+    uniform sampler2D   t_normal;
+    uniform sampler2D   t_specular;
+    uniform sampler2D   t_gloss;
+    uniform samplerCube t_radiance0;
+    uniform samplerCube t_radiance1;
+    uniform samplerCube t_radiance2;
+    uniform samplerCube t_radiance3;
+    uniform samplerCube t_radiance4;
+    uniform samplerCube t_irradiance;
+
+    varying vec2 v2_uv;
+    varying vec3 v3_norm;
+    varying vec4 v4_pos;
+
+    varying vec3 v3_wn;
+    varying vec4 v4_wp;
+
+    vec3 tsn2vsn(vec3 v, vec3 fn) {
+      vec2 uv = vec2(v2_uv.x, -v2_uv.y);
+
+      vec3 q0 = dFdx(v.xyz);
+      vec3 q1 = dFdy(v.xyz);
+      vec2 st0 = dFdx(v2_uv.st);
+      vec2 st1 = dFdy(v2_uv.st);
+
+      vec3 S = normalize( q0 * st1.t - q1 * st0.t);
+      vec3 T = normalize(-q0 * st1.s + q1 * st0.s);
+      vec3 N = normalize(fn);
+
+      mat3 tsn = mat3(S, T, N);
+
+      //vec3 tn   = texture2D(t_normal, v2_uv).rgb * 2.0 - 1.0;
+      // flip y
+      vec3 tn   = texture2D(t_normal, uv).rgb * 2.0 - 1.0;
+
+      return normalize(tsn * tn);
+    }
+
+    // Fresnel
+    //
+    vec3 F_schlick(vec3 f0, vec3 l, vec3 h) {
+      return f0 + (1.0 - f0) * pow(1.0 - dot(h, l), 5.0);
+    }
+
+    vec3 F_schlickminor(vec3 f0, vec3 v, vec3 h) {
+      float vdoth = dot(v, h);
+      return f0 + (1.0 - f0) * pow(2.0, (-5.55473 * vdoth - 6.98316) * vdoth);
+    }
+
+    vec3 Fresnel(vec3 f0, vec3 v, vec3 l, vec3 h) {
+      vec3 F = vec3(0.0);
+      #ifdef USE_FRESNEL_SCHLICK
+        F = F_schlick(f0, l, h);
+      #endif
+      #ifdef USE_FRESNEL_SCHLICK_UE4
+        F = F_schlickminor(f0, v, h);
+      #endif
+
+      return F;
+    }
+
+    // Geometry
+    //
+    float G_implicit(vec3 n, vec3 h, vec3 v, vec3 l, float r) {
+      return max(dot(n, l), 0.0) * max(dot(n, v), 0.0);
+    }
+
+    float G_cooktorrance(vec3 n, vec3 h, vec3 v, vec3 l, float r) {
+      float ndoth = dot(n, h);
+      float ndotl = dot(n, l);
+      float ndotv = dot(n, v);
+      float vdoth = dot(v, h);
+      float ndotl_s = max(ndotl, 0.0);
+      float ndotv_s = max(ndotv, 0.0);
+      return min(min(2.0 * ndoth * ndotv_s / vdoth, 2.0 * ndoth * ndotl_s / vdoth), 1.0);
+    }
+
+    float G1_schlick(vec3 n, vec3 v, float k) {
+      float ndotv_s = max(dot(n, v), 0.0);
+      float k_inv = 1.0 - k;
+      return ndotv_s / (ndotv_s * k_inv + k);
+    }
+
+    float G1_smith(vec3 n, vec3 v, float k) {
+      float ndotv_s = max(dot(n, v), 0.0);
+      float k_inv = 1.0 - k;
+      return 2.0 * ndotv_s / (ndotv_s + sqrt(ndotv_s * ndotv_s * k_inv + k));
+    }
+
+    float G_schlick(vec3 n, vec3 h, vec3 v, vec3 l, float r) {
+      float k = r * sqrt(2.0 / 3.14159265);
+      return G1_schlick(n, l, k) * G1_schlick(n, v, k);
+    }
+
+    float G_schlickminor(vec3 n, vec3 h, vec3 v, vec3 l, float r) {
+      float k = (r + 1.0) * (r + 1.0) / 8.0;
+      return G1_schlick(n, l, k) * G1_schlick(n, v, k);
+    }
+
+    float G_smith(vec3 n, vec3 h, vec3 v, vec3 l, float r) {
+      float k = r * r;
+      return G1_smith(n, l, k) * G1_smith(n, v, k);
+    }
+
+    float G_walter(vec3 n, vec3 h, vec3 v, vec3 l, float r) {
+      float ndotv = dot(n, v);
+      float ndotl = dot(n, l);
+      float hdotv = dot(h, v);
+      float hdotl = dot(h, l);
+      float ndotv_s = max(ndotv, 0.0);
+      float a = 1.0 / (r * tan(acos(ndotv_s)));
+      float a_2 = a * a;
+      if (a < 1.6) {
+        a = (3.535 * a + 2.181 * a_2) / (1.0 + 2.276 * a + 2.577 * a_2);
+      }
+      else {
+        a = 1.0;
+      }
+      return (step(0.0, hdotl/ndotl) * a) * (step(0.0, hdotv/ndotv) * a);
+    }
+
+    float Geometry(vec3 n, vec3 v, vec3 l, vec3 h, float r) {
+      float G = 0.0;
+      #ifdef USE_GEOMETRY_IMPLICIT
+        G = G_implicit(n, h, v, l, r);
+      #endif
+      #ifdef USE_GEOMETRY_COOKTORRANCE
+        G = G_cooktorrance(n, h, v, l, r);
+      #endif
+      #ifdef USE_GEOMETRY_SCHLICK
+        G = G_schlick(n, h, v, l, r);
+      #endif
+      #ifdef USE_GEOMETRY_SCHLICK_UE4
+        G = G_schlickminor(n, h, v, l, r);
+      #endif
+      #ifdef USE_GEOMETRY_SMITH
+        G = G_smith(n, h, v, l, r);
+      #endif
+      #ifdef USE_GEOMETRY_WALTER
+        G = G_walter(n, h, v, l, r);
+      #endif
+
+      return G;
+    }
+
+    // Distribution
+    //
+    float D_blinnphong(vec3 n, vec3 h, float r) {
+      float m = 2.0 / (r*r) - 2.0;
+      //float m = exp2(10.0 * r + 1.0);
+      return (m + 2.0) * pow(max(dot(n, h), 0.0), m) / (2.0 * 3.14159265);
+    }
+
+    float D_beckmann(vec3 n, vec3 h, float r) {
+      float r_2 = r * r;
+      float ndoth = max(dot(n, h), 0.0);
+      float ndoth_2 = ndoth * ndoth;
+      float ndoth_4 = ndoth_2 * ndoth_2;
+      return exp((ndoth_2 - 1.0) / (r_2 * ndoth_2)) / (3.14159265 * r_2 * ndoth_4);
+    }
+
+    float D_ggx(vec3 n, vec3 h, float r) {
+      float a = r * r;
+      float ndoth = dot(n, h);
+      float k = (ndoth * ndoth * (a * a - 1.0) + 1.0);
+      return (a * a) / (3.14159265 * k * k);
+    }
+
+    float Distribution(vec3 n, vec3 h, float r) {
+      float D = 0.0;
+      #ifdef USE_NDF_BLINNPHONG
+        D = D_blinnphong(n, h, r);
+      #endif
+      #ifdef USE_NDF_BECKMANN
+        D = D_beckmann(n, h, r);
+      #endif
+      #ifdef USE_NDF_GGX
+        D = D_ggx(n, h, r);
+      #endif
+
+      return D;
+    }
+
+    vec3 Albedo() {
+      vec3 a = vec3(1.0);
+      #ifdef USE_ALBEDO_TEXTURE
+        a = texture2D(t_albedo, v2_uv).rgb;
+      #endif
+      #ifdef USE_ALBEDO_CONSTANT
+        a = c_albedo;
+      #endif
+
+      return a;
+    }
+
+    vec3 Specular() {
+      vec3 f0 = vec3(1.0);
+      #ifdef USE_SPECULAR_TEXTURE
+        f0 = texture2D(t_specular, v2_uv).rgb;
+      #endif
+      #ifdef USE_SPECULAR_CONSTANT
+        f0 = c_specular;
+      #endif
+
+      return f0;
+    }
+
+    float Roughness() {
+      float r = 1.0;
+      #ifdef USE_ROUGHNESS_TEXTURE
+        r = 1.0 - texture2D(t_gloss, v2_uv).r;
+      #endif
+      #ifdef USE_ROUGHNESS_CONSTANT
+        r = f_roughness;
+      #endif
+
+      return r;
+    }
+
+    vec3 Irradiance(vec3 nrm) {
+      return textureCube(t_irradiance, nrm).rgb * f_el_intensity;
+    }
+
+    vec3 Radiance(vec3 rfl, float rgh) {
+      vec3 env_r0 = textureCube(t_radiance0, rfl).rgb * f_el_intensity;
+      vec3 env_r1 = textureCube(t_radiance1, rfl).rgb * f_el_intensity;
+      vec3 env_r2 = textureCube(t_radiance2, rfl).rgb * f_el_intensity;
+      vec3 env_r3 = textureCube(t_radiance3, rfl).rgb * f_el_intensity;
+      vec3 env_r4 = textureCube(t_radiance4, rfl).rgb * f_el_intensity;
+
+      vec3 rad = vec3(0.0);
+
+      float idx = rgh * 4.0;
+      if (idx >= 3.0) {
+        rad = mix(env_r3, env_r4, idx-3.0);
+      }
+      else if (idx >= 2.0) {
+        rad = mix(env_r2, env_r3, idx-2.0);
+      }
+      else if (idx >= 1.0) {
+        rad = mix(env_r1, env_r2, idx-1.0); 
+      }
+      else {
+        rad = mix(env_r0, env_r1, idx);
+      }
+
+      return rad;
+    }
+
+    void main() {
+      vec3  a   = Albedo();
+      vec3  f0  = Specular();
+      float r   = Roughness();
+
+      float ao  = texture2D(t_gloss, v2_uv).g;
+      float c   = texture2D(t_gloss, v2_uv).b;
+
+      vec3  n   = v3_norm;
+      vec3  v   = normalize(-v4_pos.xyz);
+      //vec3 n    = tsn2vsn(-v4_pos.xyz, v3_norm);
+      vec3  rf  = normalize(reflect(v4_wp.xyz - cameraPosition, v3_wn));
+
+      float ndotv = dot(n, v);
+      float ndotv_s = max(ndotv, 0.0);
+
+
+      // Environment Light
+      //
+      vec3 el_diff = a * Irradiance(v3_wn);
+      vec3 el_spec = F_schlick(f0, n, v) * Radiance(rf, r);
+
+      
+      // Directional Light
+      //
+      vec3 dl_diff;
+      vec3 dl_spec;
+
+      gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+
+      #if MAX_DIR_LIGHTS > 0
+
+      for (int i = 0; i < MAX_DIR_LIGHTS; ++i) {
+        vec3 l = l_dir[i];
+        vec3 h = normalize(l + v);
+        vec3 c_dir = directionalLightColor[i] * f_dl_intensity;
+
+        float ndotl = dot(n, l);
+        float ndotl_s = max(ndotl, 0.0);
+        
+        vec3  F = Fresnel(f0, v, l, h);
+        float G = Geometry(n, v, l, h, r);
+        float D = Distribution(n, h, r);
+        
+        vec3 spec = (F * G * D / (4.0 * ndotl_s * ndotv_s)) * c_dir * ndotl_s;
+        vec3 diff = (1.0 - F) * a * c_dir * ndotl_s;
+
+        #ifdef USE_AO
+          diff *= ao;
+        #endif
+
+        #ifdef USE_CAVITY
+          diff *= c;
+          spec *= c;
+        #endif
+
+        dl_diff += diff;
+        dl_spec += spec;
+      }
+      #endif
+
+      gl_FragColor += vec4(dl_diff + dl_spec + mix(el_spec, el_diff, r), 1.0);
+    }
+  </script>
+</head>
+<body>
+  <div id="view" oncontextmenu="return false;"></div>
+</body>
+</html>
