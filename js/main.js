@@ -211,46 +211,6 @@ function environment_maps(three, name) {
   return ctx;
 };
 
-function Controls() {
-  var ctx = {};
-
-  ctx.model = {};
-  ctx.model.use = 'sphere';
-
-  ctx.albedo = {};
-  ctx.albedo.use = 'constant';
-  ctx.albedo.color = '#FFFFFF';
-
-  ctx.specular = {};
-  ctx.specular.use = 'constant';
-  ctx.specular.color = '#FFFFFF';
-
-  ctx.fresnel = {};
-  ctx.fresnel.use = 'schlick';
-
-  ctx.ndf = {};
-  ctx.ndf.use = 'blinnphong';
-
-  ctx.geometry = {};
-  ctx.geometry.use = 'cooktorrance';
-
-  ctx.roughness = {};
-  ctx.roughness.use = 'constant';
-  ctx.roughness.constant = 0.5;
-
-  ctx.dl = {};
-  ctx.dl.intensity = 1.0;
-  ctx.dl.color = '#FFFFFF';
-
-  ctx.el = {};
-  ctx.el.intensity = 1.0;
-
-  ctx.ao = false;
-  ctx.cavity = false;
-
-  return ctx;
-};
-
 require([
   'lib/lodash.min',
   'lib/jquery-1.9.0.min',
@@ -278,121 +238,23 @@ require([
   //
   var maps = environment_maps(THREE, 'castle');
 
+  // dagger textures
+  //
+  var texs = textures(THREE, 'dagger');
+
   // skybox
   //
   skybox(THREE).cubemap(maps.radiance(0)).add_to(scene);
 
-  // dagger
-  //
-  var texs = textures(THREE, 'dagger');
+  var pbr = PBR().textures(texs).environments(maps);
 
-  function PBR() {
-    var ctx = {};
-
-    var vs = $('#vs').text();
-    var fs = $('#fs').text();
-
-    var uniforms = THREE.UniformsUtils.merge([
-      THREE.UniformsLib.common,
-      THREE.UniformsLib.lights,
-      {
-        f_roughness:    { type: 'f', value: 0.5 },
-        f_dl_intensity: { type: 'f', value: 1.0 },
-        f_el_intensity: { type: 'f', value: 1.0 },
-        c_albedo:       { type: 'c', value: new THREE.Color(0xFFFFFF) },
-        c_specular:     { type: 'c', value: new THREE.Color(0xFFFFFF) },
-        t_albedo:       { type: 't', value: null },
-        t_normal:       { type: 't', value: null },
-        t_specular:     { type: 't', value: null },
-        t_gloss:        { type: 't', value: null },
-        t_radiance0:    { type: 't', value: null },
-        t_radiance1:    { type: 't', value: null },
-        t_radiance2:    { type: 't', value: null },
-        t_radiance3:    { type: 't', value: null },
-        t_radiance4:    { type: 't', value: null },
-        t_irradiance:   { type: 't', value: null }
-      }
-    ]);
-
-    var material = new THREE.ShaderMaterial({
-      vertexShader:   vs,
-      fragmentShader: fs,
-      uniforms:       uniforms,
-      lights:         true
-    });
-
-    ctx.textures = function(tex) {
-      uniforms.t_albedo.value     = tex.albedo();
-      uniforms.t_normal.value     = tex.normal();
-      uniforms.t_specular.value   = tex.specular();
-      uniforms.t_gloss.value      = tex.gloss();
-
-      return ctx;
-    };
-
-    ctx.environments = function(env) {
-      uniforms.t_radiance0.value  = env.radiance(0);
-      uniforms.t_radiance1.value  = env.radiance(1);
-      uniforms.t_radiance2.value  = env.radiance(2);
-      uniforms.t_radiance3.value  = env.radiance(3);
-      uniforms.t_radiance4.value  = env.radiance(4);
-      uniforms.t_irradiance.value = env.irradiance();
-
-      return ctx;
-    };
-
-    return ctx;
-  };
-
-  var mate = PBR().textures(texs).environments(env);
-
-  var uniforms = THREE.UniformsUtils.merge([
-    THREE.UniformsLib.common,
-    THREE.UniformsLib.lights,
-    {
-      f_roughness:    { type: 'f', value: 0.5 },
-      f_dl_intensity: { type: 'f', value: 1.0 },
-      f_el_intensity: { type: 'f', value: 1.0 },
-      c_albedo:       { type: 'c', value: new THREE.Color(0xFFFFFF) },
-      c_specular:     { type: 'c', value: new THREE.Color(0xFFFFFF) },
-      t_albedo:       { type: 't', value: null },
-      t_normal:       { type: 't', value: null },
-      t_specular:     { type: 't', value: null },
-      t_gloss:        { type: 't', value: null },
-      t_radiance0:    { type: 't', value: null },
-      t_radiance1:    { type: 't', value: null },
-      t_radiance2:    { type: 't', value: null },
-      t_radiance3:    { type: 't', value: null },
-      t_radiance4:    { type: 't', value: null },
-      t_irradiance:   { type: 't', value: null }
-    }
-  ]);
-
-  uniforms.t_albedo.value     = texs.albedo();
-  uniforms.t_normal.value     = texs.normal();
-  uniforms.t_specular.value   = texs.specular();
-  uniforms.t_gloss.value      = texs.gloss();
-
-  uniforms.t_radiance0.value  = maps.radiance(0);
-  uniforms.t_radiance1.value  = maps.radiance(1);
-  uniforms.t_radiance2.value  = maps.radiance(2);
-  uniforms.t_radiance3.value  = maps.radiance(3);
-  uniforms.t_radiance4.value  = maps.radiance(4);
-  uniforms.t_irradiance.value = maps.irradiance();
-
-  var m_dagger = new THREE.ShaderMaterial({
-    vertexShader:   vs,
-    fragmentShader: fs,
-    uniforms:       uniforms,
-    lights:         true
-  });
-
+  // models
   var dagger = null;
   var loader = new THREE.OBJLoader(new THREE.LoadingManager());
   loader.load('asset/dagger/mesh.obj', function(obj) {
     obj.traverse(function(child) {
       if (child instanceof THREE.Mesh) {
-        child.material = m_dagger;
+        child.material = pbr.material();
       }
     });
 
@@ -402,7 +264,7 @@ require([
 
   var sphere = new THREE.Mesh(
     new THREE.SphereGeometry(25, 128, 128), 
-    m_dagger
+    pbr.material()
   );
 
   function animate(ts) {
@@ -436,45 +298,13 @@ require([
     cam.zoom((e.wheelDelta / Math.abs(e.wheelDelta)) * -10);
   }, false);
 
-  
-
-  var defines = {
-    albedo:     'USE_ALBEDO_CONSTANT',
-    ao:         null,
-    cavity:     null,
-    fresnel:    'USE_FRESNEL_SCHLICK',
-    geometry:   'USE_GEOMETRY_COOKTORRANCE',
-    ndf:        'USE_NDF_BLINNPHONG',
-    roughness:  'USE_ROUGHNESS_CONSTANT',
-    specular:   'USE_SPECULAR_CONSTANT',
-  };
-
-  var current = sphere;
-
-  function updateModel() {
-    scene.add(current);
-  };
-
-  function updateDefines() {
-    m_dagger.needsUpdate = true;
-    m_dagger.fragmentShader = _.map(_.compact(_.values(defines)), function(v) {
-      return '#define ' + v;
-    }).join('\n') + fs;
-  };
-
   var ctrl  = Controls();
   var gui   = new dat.GUI();
 
   var fld_model     = gui.addFolder('Model');
   fld_model.add(ctrl.model, 'use', ['dagger', 'sphere']).onChange(function(v) {
-    var target = (v === 'dagger')? dagger : sphere;
-    if (current === target) {
-      return;
-    }
-
-    scene.remove(current);
-    current = target;
-    updateModel();
+    scene.remove((v === 'dagger')? sphere : dagger);
+    scene.add((v === 'dagger')? dagger : sphere);
   });
 
   var fld_albedo = gui.addFolder('Albedo');
@@ -514,27 +344,160 @@ require([
 
   function makeuni(name) {
     return function(v) {
-      uniforms[name].value = _.isString(v)? new THREE.Color(v) : v;
+      pbr.uniform(name, v);
     };
   };
 
   function makedef(name) {
     return function(v) {
-      var def = 'USE_' + name.toUpperCase();
-      if (_.isString(v)) {
-        def += ('_' + v.toUpperCase());
-      }
-
-      defines[name] = def;
-      updateDefines();
+      pbr.define(name, v);
     }
   };
 
   cam.update();
   light.update();
-
-  updateModel();
-  updateDefines();
+  scene.add(sphere);
+  pbr.update();
 
   animate();
+
+
+
+
+  function PBR() {
+    var ctx = {};
+
+    var vs = $('#vs').text();
+    var fs = $('#fs').text();
+
+    var defines = {
+      albedo:     'USE_ALBEDO_CONSTANT',
+      ao:         null,
+      cavity:     null,
+      fresnel:    'USE_FRESNEL_SCHLICK',
+      geometry:   'USE_GEOMETRY_COOKTORRANCE',
+      ndf:        'USE_NDF_BLINNPHONG',
+      roughness:  'USE_ROUGHNESS_CONSTANT',
+      specular:   'USE_SPECULAR_CONSTANT',
+    };
+
+    var uniforms = THREE.UniformsUtils.merge([
+      THREE.UniformsLib.common,
+      THREE.UniformsLib.lights,
+      {
+        f_roughness:    { type: 'f', value: 0.5 },
+        f_dl_intensity: { type: 'f', value: 1.0 },
+        f_el_intensity: { type: 'f', value: 1.0 },
+        c_albedo:       { type: 'c', value: new THREE.Color(0xFFFFFF) },
+        c_specular:     { type: 'c', value: new THREE.Color(0xFFFFFF) },
+        t_albedo:       { type: 't', value: null },
+        t_normal:       { type: 't', value: null },
+        t_specular:     { type: 't', value: null },
+        t_gloss:        { type: 't', value: null },
+        t_radiance0:    { type: 't', value: null },
+        t_radiance1:    { type: 't', value: null },
+        t_radiance2:    { type: 't', value: null },
+        t_radiance3:    { type: 't', value: null },
+        t_radiance4:    { type: 't', value: null },
+        t_irradiance:   { type: 't', value: null }
+      }
+    ]);
+
+    var material = new THREE.ShaderMaterial({
+      vertexShader:   vs,
+      fragmentShader: fs,
+      uniforms:       uniforms,
+      lights:         true
+    });
+
+    ctx.material = function() {
+      return material;
+    };
+
+    ctx.define = function(name, value) {
+      var def = 'USE_' + name.toUpperCase();
+      if (_.isString(value)) {
+        def += ('_' + value.toUpperCase());
+      }
+      defines[name] = def;
+
+      return ctx.update();
+    };
+
+    ctx.uniform = function(name, value) {
+      uniforms[name].value = _.isString(value)? new THREE.Color(value) : value;
+      return ctx;
+    };
+
+    ctx.textures = function(tex) {
+      uniforms.t_albedo.value     = tex.albedo();
+      uniforms.t_normal.value     = tex.normal();
+      uniforms.t_specular.value   = tex.specular();
+      uniforms.t_gloss.value      = tex.gloss();
+
+      return ctx;
+    };
+
+    ctx.environments = function(env) {
+      uniforms.t_radiance0.value  = env.radiance(0);
+      uniforms.t_radiance1.value  = env.radiance(1);
+      uniforms.t_radiance2.value  = env.radiance(2);
+      uniforms.t_radiance3.value  = env.radiance(3);
+      uniforms.t_radiance4.value  = env.radiance(4);
+      uniforms.t_irradiance.value = env.irradiance();
+
+      return ctx;
+    };
+
+    ctx.update = function() {
+      var defs = _.map(_.compact(_.values(defines)), function(v) {
+        return '#define ' + v;
+      });
+
+      material.needsUpdate = true;
+      material.fragmentShader = defs.join('\n') + fs;
+    };
+
+    return ctx;
+  };
+
+  function Controls() {
+    var ctx = {};
+
+    ctx.model = {};
+    ctx.model.use = 'sphere';
+
+    ctx.albedo = {};
+    ctx.albedo.use = 'constant';
+    ctx.albedo.color = '#FFFFFF';
+
+    ctx.specular = {};
+    ctx.specular.use = 'constant';
+    ctx.specular.color = '#FFFFFF';
+
+    ctx.fresnel = {};
+    ctx.fresnel.use = 'schlick';
+
+    ctx.ndf = {};
+    ctx.ndf.use = 'blinnphong';
+
+    ctx.geometry = {};
+    ctx.geometry.use = 'cooktorrance';
+
+    ctx.roughness = {};
+    ctx.roughness.use = 'constant';
+    ctx.roughness.constant = 0.5;
+
+    ctx.dl = {};
+    ctx.dl.intensity = 1.0;
+    ctx.dl.color = '#FFFFFF';
+
+    ctx.el = {};
+    ctx.el.intensity = 1.0;
+
+    ctx.ao = false;
+    ctx.cavity = false;
+
+    return ctx;
+  };
 });
